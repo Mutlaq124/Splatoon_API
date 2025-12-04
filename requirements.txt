@@ -1,0 +1,19 @@
+# Core API
+fastapi==0.118.3
+uvicorn==0.38.0
+python-multipart==0.0.20
+
+# ONNX Runtime (render -> free tier no gpu) 
+onnxruntime==1.23.2
+
+# Image Processing
+opencv-python-headless==4.10.0.84
+pillow==11.3.0
+numpy==2.0.2
+
+# Environment Variables
+python-dotenv==1.2.1
+
+# Testing (optional - remove for production)
+# pytest==8.3.3
+# httpx==0.28.1

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: splatoon-yolo-api
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MODEL_PATH
+        value: models/best.onnx
+      - key: IMG_SIZE
+        value: 640
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health
