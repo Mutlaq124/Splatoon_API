@@ -6,8 +6,12 @@ from typing import List, Dict
 
 
 def load_model(path: str):
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess_options.intra_op_num_threads = 4
+    sess_options.inter_op_num_threads = 4
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    return ort.InferenceSession(path, providers=providers)
+    return ort.InferenceSession(path, sess_options=sess_options, providers=providers)
 
 
 def infer(session, inp: np.ndarray):
