@@ -29,51 +29,6 @@ def preprocess_image(img: Image.Image, size: int = 640):
     return arr
 
 
-def numpy_nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float):
-    """
-    Pure NumPy Non-Maximum Suppression
-    Args:
-        boxes: (N, 4) array of [x1, y1, x2, y2]
-        scores: (N,) array of confidence scores
-        iou_threshold: IoU threshold for suppression
-    Returns:
-        keep_indices: indices of boxes to keep
-    """
-    if len(boxes) == 0:
-        return np.array([], dtype=np.int32)
-
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = boxes[:, 2]
-    y2 = boxes[:, 3]
-
-    areas = (x2 - x1) * (y2 - y1)
-    order = scores.argsort()[::-1]  # Sort by score descending
-
-    keep = []
-    while order.size > 0:
-        i = order[0]
-        keep.append(i)
-
-        # Compute IoU of the kept box with the rest
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.minimum(x2[i], x2[order[1:]])
-        yy2 = np.minimum(y2[i], y2[order[1:]])
-
-        w = np.maximum(0.0, xx2 - xx1)
-        h = np.maximum(0.0, yy2 - yy1)
-        intersection = w * h
-
-        iou = intersection / (areas[i] + areas[order[1:]] - intersection)
-
-        # Keep only boxes with IoU less than threshold
-        inds = np.where(iou <= iou_threshold)[0]
-        order = order[inds + 1]
-
-    return np.array(keep, dtype=np.int32)
-
-
 def postprocess_detections(
     outputs, conf_thr: float, iou_thr: float, class_names: List[str]
 ):
@@ -104,17 +59,17 @@ def postprocess_detections(
     xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2
     xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2
 
-    # Apply NMS per class
     final = []
     for cls in np.unique(class_ids):
         cls_mask = class_ids == cls
         cls_boxes = xyxy[cls_mask]
         cls_scores = scores[cls_mask]
 
-        # Apply NumPy NMS
-        keep_indices = numpy_nms(cls_boxes, cls_scores, iou_thr)
+        indices = cv2.dnn.NMSBoxes(
+            cls_boxes.tolist(), cls_scores.tolist(), conf_thr, iou_thr
+        )
 
-        for idx in keep_indices:
+        for idx in indices:
             box_idx = np.where(cls_mask)[0][idx]
             final.append(
                 {
