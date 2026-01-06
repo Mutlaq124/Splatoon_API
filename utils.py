@@ -1,7 +1,6 @@
 import onnxruntime as ort
 import numpy as np
 import cv2
-from PIL import Image
 from typing import List, Dict
 
 
@@ -19,14 +18,13 @@ def infer(session, inp: np.ndarray):
     return session.run(None, {input_name: inp})
 
 
-def preprocess_image(img: Image.Image, size: int = 640):
-    """Resize image to 640x640, normalize, CHW."""
-    arr = np.array(img, dtype=np.float32)
-    arr = cv2.resize(arr, (size, size), interpolation=cv2.INTER_LINEAR)
-    arr = arr / 255.0
-    arr = arr.transpose(2, 0, 1)
-    arr = np.expand_dims(arr, 0)
-    return arr
+def preprocess_image(img: np.ndarray, size: int = 640):
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(img_rgb, (size, size), interpolation=cv2.INTER_LINEAR)
+    normalized = resized.astype(np.float32) / 255.0
+    transposed = normalized.transpose(2, 0, 1)
+    batched = np.expand_dims(transposed, 0)
+    return batched
 
 
 def postprocess_detections(

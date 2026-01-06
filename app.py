@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from PIL import Image
 from io import BytesIO
 import os
 import cv2
@@ -84,7 +83,8 @@ async def predict_json(
 
     try:
         contents = await file.read()
-        image = Image.open(BytesIO(contents)).convert("RGB")
+        img_array = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         input_data = preprocess_image(image, IMG_SIZE)
 
         outputs = infer(ort_session, input_data)
@@ -127,18 +127,16 @@ async def predict_image(
 
     try:
         contents = await file.read()
-        image = Image.open(BytesIO(contents)).convert("RGB")
+        img_array = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         input_data = preprocess_image(image, IMG_SIZE)
 
         outputs = infer(ort_session, input_data)
         detections = postprocess_detections(outputs[0], conf, iou, CLASS_NAMES)
 
-        img_with_boxes = draw_boxes(
-            np.array(image), detections, thickness=line_thickness
-        )
+        img_with_boxes = draw_boxes(image, detections, thickness=line_thickness)
 
-        # Return as image file
-        _, buffer = cv2.imencode(".jpg", img_with_boxes)
+        _, buffer = cv2.imencode(".jpg", img_with_boxes, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return StreamingResponse(
             BytesIO(buffer.tobytes()),
             media_type="image/jpeg",
