@@ -1,9 +1,7 @@
-
 from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from PIL import Image
 from io import BytesIO
 import os
 import cv2
@@ -11,11 +9,11 @@ import numpy as np
 import uvicorn
 
 from utils import (
-    preprocess_image, 
-    postprocess_detections, 
+    preprocess_image,
+    postprocess_detections,
     draw_boxes,
     load_model,
-    infer
+    infer,
 )
 
 load_dotenv()
@@ -30,10 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MODEL_PATH = os.getenv("MODEL_PATH", "models/best.onnx")
+MODEL_PATH = os.getenv("MODEL_PATH", "models/best_int8.onnx")
 IMG_SIZE = int(os.getenv("IMG_SIZE", "640"))
 CLASS_NAMES = ["aim_cursor", "entity", "obstacle"]
 ort_session = None
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -46,6 +45,7 @@ async def startup_event():
         print(f"❌ Failed to load model: {e}")
         raise
 
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -54,23 +54,25 @@ async def root():
         "endpoints": {
             "/health": "Health check",
             "/predict/json": "Get JSON detections only",
-            "/predict/image": "Get annotated image file"
-        }
+            "/predict/image": "Get annotated image file",
+        },
     }
+
 
 @app.get("/health")
 async def health():
     """Health check endpoint"""
     return {
         "status": "healthy" if ort_session else "unhealthy",
-        "model_path": MODEL_PATH
+        "model_path": MODEL_PATH,
     }
+
 
 @app.post("/predict/json")
 async def predict_json(
     file: UploadFile = File(...),
     conf: float = Query(0.25, ge=0.0, le=1.0),
-    iou: float = Query(0.45, ge=0.0, le=1.0)
+    iou: float = Query(0.45, ge=0.0, le=1.0),
 ):
     """
     Predict objects and return JSON only (no image)
@@ -78,48 +80,43 @@ async def predict_json(
     """
     if not ort_session:
         return JSONResponse({"error": "Model not loaded"}, status_code=503)
-    
+
     try:
         contents = await file.read()
-        image = Image.open(BytesIO(contents)).convert("RGB")
+        img_array = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         input_data = preprocess_image(image, IMG_SIZE)
 
-        
         outputs = infer(ort_session, input_data)
-        detections = postprocess_detections(
-            outputs[0], 
-            conf, 
-            iou, 
-            CLASS_NAMES
-        )
-        
+        detections = postprocess_detections(outputs[0], conf, iou, CLASS_NAMES)
+
         results = []
         for det in detections:
-            results.append({
-                "class": det["class_name"],
-                "box": {
-                    "x1": det["bbox"][0],
-                    "y1": det["bbox"][1],
-                    "x2": det["bbox"][2],
-                    "y2": det["bbox"][3]
-                },
-                "confidence": det["confidence"]
-            })
-        
-        return JSONResponse({
-            "detections": results,
-            "num_detections": len(results)
-        })
-        
+            results.append(
+                {
+                    "class": det["class_name"],
+                    "box": {
+                        "x1": det["bbox"][0],
+                        "y1": det["bbox"][1],
+                        "x2": det["bbox"][2],
+                        "y2": det["bbox"][3],
+                    },
+                    "confidence": det["confidence"],
+                }
+            )
+
+        return JSONResponse({"detections": results, "num_detections": len(results)})
+
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.post("/predict/image")
 async def predict_image(
     file: UploadFile = File(...),
     conf: float = Query(0.25, ge=0.0, le=1.0),
     iou: float = Query(0.45, ge=0.0, le=1.0),
-    line_thickness: int = Query(2, ge=1, le=10)
+    line_thickness: int = Query(2, ge=1, le=10),
 ):
     """
     Predict objects and return annotated image file
@@ -127,42 +124,35 @@ async def predict_image(
     """
     if not ort_session:
         return JSONResponse({"error": "Model not loaded"}, status_code=503)
-    
+
     try:
         contents = await file.read()
-        image = Image.open(BytesIO(contents)).convert("RGB")
+        img_array = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         input_data = preprocess_image(image, IMG_SIZE)
-        
+
         outputs = infer(ort_session, input_data)
-        detections = postprocess_detections(
-            outputs[0], 
-            conf, 
-            iou, 
-            CLASS_NAMES
-        )
-        
-        img_with_boxes = draw_boxes(
-            np.array(image), 
-            detections,
-            thickness=line_thickness
-        )
-        
-        # Return as image file
-        _, buffer = cv2.imencode('.jpg', img_with_boxes)
+        detections = postprocess_detections(outputs[0], conf, iou, CLASS_NAMES)
+
+        img_with_boxes = draw_boxes(image, detections, thickness=line_thickness)
+
+        _, buffer = cv2.imencode(".jpg", img_with_boxes, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return StreamingResponse(
             BytesIO(buffer.tobytes()),
             media_type="image/jpeg",
-            headers={"Content-Disposition": f"inline; filename=annotated_{file.filename}"}
+            headers={
+                "Content-Disposition": f"inline; filename=annotated_{file.filename}"
+            },
         )
-        
+
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     uvicorn.run(
         "app:app",
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "8000")),
-        reload=os.getenv("RELOAD", "false").lower() == "true"
+        reload=os.getenv("RELOAD", "false").lower() == "true",
     )
